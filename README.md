@@ -1,77 +1,95 @@
-# C++ In-Memory Key-Value Store
+# BlazeKV
 
-A simple, thread-safe, Redis-like in-memory key-value store. Built as part of the uTrade Solutions Campus Hiring assignment.
+## Description
+BlazeKV is a fully-featured, thread-safe, in-memory Redis-like key-value store built entirely in C++ for fast caching and session management. Engineered for the uTrade Solutions Campus Hiring assignment, it combines high concurrency, advanced data structures, and efficient memory management into a streamlined single-file application.
 
-## Design Decisions
+## Features
+- **Concurrent Access:** Thread-safe operations using Multiple-Readers/Single-Writer locks.
+- **Lazy & Active Expiration:** Keys automatically expire via a dual-layered mechanism ensuring exact TTL precision and no memory leaks.
+- **Snapshot Persistence:** Save and Load the entire state to a JSON file.
+- **Interactive REPL:** A clean, Stdin-based text protocol for instant interaction.
 
-1. **Architecture Overview**: The system is split into a core storage engine (`KVStore`) and a networking layer (`TCPServer`). This decoupling allows the core engine to be easily tested or used with different interfaces in the future.
-2. **Thread Safety**: High concurrency is supported via a Multiple Readers / Single Writer pattern. We use `std::shared_mutex`, which allows concurrent `GET`, `TTL`, and `KEYS` commands (using `std::shared_lock`) while exclusively locking state-mutating commands like `SET` and `DEL` (using `std::unique_lock`).
-3. **Expiration Mechanism**: A hybrid approach to expiration is implemented:
-    - **Lazy Expiration**: Checked on every read (`GET`, `TTL`, `INCR`). If an accessed key is expired, it is deleted and reported as non-existent.
-    - **Active Background Cleanup**: A dedicated thread sweeps the memory periodically (every 1 second) to prune orphaned keys that haven't been accessed recently, preventing out-of-memory issues.
-4. **Networking Model**: The TCP Server accepts connections and spawns an isolated, detached `std::thread` per client. This ensures that one slow or unresponsive client does not bottleneck the entire server.
+## Bonus Features Implemented
+- ⭐ **Atomic Integers:** `INCR` and `DECR` for lightning-fast counters.
+- ⭐ **List Operations:** `LPUSH`, `RPUSH`, `LPOP`, and `RPOP` for managing sequence data.
+- ⭐ **Pub/Sub Mechanism:** `SUBSCRIBE` and `PUBLISH` mocking for real-time messaging simulation.
+- ⭐ **LRU Eviction:** Configurable memory limits (default 1000 keys) with strict Least Recently Used (LRU) pruning across all access methods.
 
-## Data Structures and Algorithms
+## Commands Reference
 
-- **Primary Data Store**: `std::unordered_map<std::string, std::string>`
-  - *Why?* O(1) average time complexity for insertion, deletion, and lookup.
-- **TTL Tracking**: `std::unordered_map<std::string, std::chrono::time_point<std::chrono::system_clock>>`
-  - *Why?* Allows O(1) checks during `GET`/`SET`/`DEL`.
-- **KEYS Pattern Matching**: A standard recursive string matching algorithm.
-  - *Why?* Efficient enough for basic glob matching without the heavy compilation overhead of `<regex>`.
-- **JSON Serialization**: Using `nlohmann/json` (a popular single-header C++ library).
-  - *Why?* Standard, robust, and clean approach to fulfilling the snapshot requirements.
+| Command | Syntax | Description |
+|---|---|---|
+| **SET** | `SET key value [EX seconds]` | Stores a string. Optionally expires after `EX`. |
+| **GET** | `GET key` | Retrieves the value of a string key. |
+| **DEL** | `DEL key` | Deletes a key and its value. |
+| **KEYS** | `KEYS pattern` | Finds keys matching a glob pattern (`*` or `?`). |
+| **TTL** | `TTL key` | Returns remaining seconds, `-1` if no expiry, `-2` if missing. |
+| **INCR** | `INCR key` | Atomically increments an integer. Creates as `1` if missing. |
+| **DECR** | `DECR key` | Atomically decrements an integer. Creates as `-1` if missing. |
+| **LPUSH** | `LPUSH key val [val...]` | Prepends one or more values to a list. |
+| **RPUSH** | `RPUSH key val [val...]` | Appends one or more values to a list. |
+| **LPOP** | `LPOP key` | Removes and returns the first element of a list. |
+| **RPOP** | `RPOP key` | Removes and returns the last element of a list. |
+| **SUBSCRIBE** | `SUBSCRIBE channel` | Subscribes the current session to a channel. |
+| **PUBLISH** | `PUBLISH channel msg` | Pushes a message to subscribers. |
+| **SAVE** | `SAVE` | Snapshots the state to `snapshot.json`. |
+| **LOAD** | `LOAD` | Restores the state from `snapshot.json`. |
+| **STATS** | `STATS` | Prints memory usage, key counts, and cleanup metrics. |
 
-## How to Build and Run
+## How to Compile
+You need a C++17 compliant compiler (`g++`, `clang++`, or MSVC).
 
-### Prerequisites
-- C++17 compliant compiler (`g++` or MSVC)
-- Windows OS (Network layer relies on Winsock2)
-
-### Building
-Using GCC (MinGW/MSYS2):
 ```bash
-g++ -std=c++17 -O2 main.cpp store.cpp server.cpp -o kvstore.exe -lws2_32
+# Using g++
+g++ -std=c++17 -O2 main.cpp -o blazekv.exe
 ```
 
-Using CMake (if available):
+## How to Run
 ```bash
-mkdir build
-cd build
-cmake ..
-cmake --build . --config Release
+./blazekv.exe
 ```
 
-### Running
-```bash
-# Start the server (defaults to port 6379)
-./kvstore.exe
+## Sample Input/Output
 
-# Start on a custom port
-./kvstore.exe 8080
+**Input:**
+```
+SET user:1 '{"name":"Alice"}' EX 300
+GET user:1
+TTL user:1
+INCR counter
+LPUSH log "error 1" "error 2"
+LPOP log
+SUBSCRIBE events
+PUBLISH events "Server started"
 ```
 
-### Connecting as a Client
-You can interact with the server using a simple TCP client like `telnet`.
-```bash
-telnet 127.0.0.1 6379
+**Output:**
+```
+OK
+{name:Alice}
+300
+1
+2
+error 2
+Subscribed to channel: events
+[MESSAGE - events] "Server started"
+1
 ```
 
-**Commands Supported:**
-- `SET key value [EX seconds]`
-- `GET key`
-- `DEL key`
-- `KEYS pattern` (supports `*` and `?`)
-- `TTL key`
-- `SAVE [filename]`
-- `LOAD [filename]`
-- `STATS`
-- `INCR key` (Bonus)
-- `DECR key` (Bonus)
+## Architecture & Design Explanations
 
-## Trade-offs and Known Limitations
+### Design Explanation
+BlazeKV is structured around an interactive REPL pattern backed by the `BlazeKV` C++ class. By using `std::variant<std::string, std::deque<std::string>>`, the engine elegantly supports dynamic typing (Strings vs Lists) natively without convoluted pointer casting. Command parsing is implemented via a lightweight, quote-aware tokenizer.
 
-1. **Thread per Client Model**: The server currently creates a new OS thread for every active connection. This is simple and effective for low-to-medium concurrency but doesn't scale to C10k. For ultra-high concurrency, an asynchronous event loop (e.g., using `epoll` or IOCP) would be superior.
-2. **Global Lock Contention**: A single `std::shared_mutex` manages the entire `KVStore`. During high write-throughput, lock contention could bottleneck performance. Sharding the `unordered_map` into multiple buckets with distinct locks would mitigate this.
-3. **Memory Overhead**: C++ `std::unordered_map` has noticeable per-node memory overhead. If millions of tiny keys are expected, a flat array-based hash map might save memory.
-4. **Command Tokenizer**: The naive text tokenizer respects single and double quotes to group terms but strips them from the final string. It doesn't feature full escape sequence parsing (like `\"`) for complex nested JSON.
+### Thread-Safety Explanation
+The core engine relies on `std::shared_mutex` to implement the Multiple-Readers/Single-Writer (MRSW) pattern. Operations that read state (like `KEYS` or `TTL`) lock the mutex in shared mode (`std::shared_lock`). Operations that mutate state (like `SET`, `INCR`, `LPUSH`) use an exclusive lock (`std::unique_lock`).
+
+### TTL Expiration Explanation
+1. **Lazy Evaluation:** Before `GET`, `LPOP`, or `INCR` interact with a key, a check against `std::chrono::system_clock::now()` ensures the client never receives stale data.
+2. **Active Cleanup:** A detached `std::thread` wakes up every 1 second, exclusively locks the database, and prunes expired keys to ensure background garbage collection without client intervention.
+
+### Persistence Explanation
+The `SAVE` command iterates through all unexpired data and serializes the `std::variant` instances into JSON using `nlohmann/json`. Keys, variants, and TTL UNIX timestamps are dumped synchronously. `LOAD` acts inversely, restoring both lists and strings.
+
+### LRU Eviction Explanation
+A strictly synchronized `std::list<std::string>` tracks the access order, and an `std::unordered_map` points directly to the list's nodes for O(1) removals. Any successful read/write (`touch_lru()`) bumps the key to the front of the list. When `data_.size() > max_keys`, the tail of the list is popped and the corresponding key is deleted.
