@@ -49,31 +49,56 @@ g++ -std=c++17 -O2 main.cpp -o blazekv.exe
 ./blazekv.exe
 ```
 
-## Sample Input/Output
+## Complete Test Suite
+You can copy and paste the following commands directly into the `BlazeKV>` prompt to test all features:
 
-**Input:**
-```
-SET user:1 '{"name":"Alice"}' EX 300
+```text
+SET user:1 "John Doe" EX 300
 GET user:1
 TTL user:1
 INCR counter
-LPUSH log "error 1" "error 2"
-LPOP log
-SUBSCRIBE events
-PUBLISH events "Server started"
+INCR counter
+DECR counter
+GET counter
+LPUSH tasks "Task 1"
+LPUSH tasks "Task 2"
+RPUSH tasks "Task 3"
+LPOP tasks
+RPOP tasks
+SET user:2 "Jane"
+KEYS user:*
+DEL user:2
+SUBSCRIBE notifications
+PUBLISH notifications "Hello World!"
+SAVE
+STATS
+LOAD
 ```
 
-**Output:**
-```
+**Expected Output:**
+```text
 OK
-{name:Alice}
+John Doe
 300
 1
 2
-error 2
-Subscribed to channel: events
-[MESSAGE - events] "Server started"
 1
+1
+1
+2
+3
+Task 2
+Task 3
+OK
+user:1
+user:2
+OK
+Subscribed to channel: notifications
+[MESSAGE - notifications] Hello World!
+1
+OK
+Total keys: 3...
+OK
 ```
 
 ## Architecture & Design Explanations

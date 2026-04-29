@@ -1,0 +1,21 @@
+{
+    "data": {
+        "counter": {
+            "type": "string",
+            "val": "2"
+        },
+        "tasks": {
+            "type": "list",
+            "val": [
+                "Task 1"
+            ]
+        },
+        "user:1": {
+            "type": "string",
+            "val": "John Doe"
+        }
+    },
+    "expiry": {
+        "user:1": 1777460632665
+    }
+}

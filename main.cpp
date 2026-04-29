@@ -434,8 +434,11 @@ private:
             auto now = std::chrono::system_clock::now();
             for (auto it = expiry_.begin(); it != expiry_.end(); ) {
                 if (now > it->second) {
-                    erase_unsafe(it->first);
-                    it = expiry_.erase(it);
+                    // Extract key since erase_unsafe will delete it from expiry_
+                    std::string expired_key = it->first;
+                    // Move iterator before erasing to prevent invalidation
+                    ++it;
+                    erase_unsafe(expired_key);
                     expired_keys_cleaned_++;
                 } else {
                     ++it;
@@ -461,7 +464,6 @@ private:
         auto it = expiry_.find(key);
         if (it != expiry_.end() && std::chrono::system_clock::now() > it->second) {
             erase_unsafe(key);
-            expiry_.erase(it);
             expired_keys_cleaned_++;
             return true;
         }
