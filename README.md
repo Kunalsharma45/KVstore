@@ -109,9 +109,9 @@ BlazeKV is structured around an interactive REPL pattern backed by the `BlazeKV`
 ### Thread-Safety Explanation
 The core engine relies on `std::shared_mutex` to implement the Multiple-Readers/Single-Writer (MRSW) pattern. Operations that read state (like `KEYS` or `TTL`) lock the mutex in shared mode (`std::shared_lock`). Operations that mutate state (like `SET`, `INCR`, `LPUSH`) use an exclusive lock (`std::unique_lock`).
 
-### TTL Expiration Explanation
+### TTL Expiration Explanation (Min-Heap Optimization)
 1. **Lazy Evaluation:** Before `GET`, `LPOP`, or `INCR` interact with a key, a check against `std::chrono::system_clock::now()` ensures the client never receives stale data.
-2. **Active Cleanup:** A detached `std::thread` wakes up every 1 second, exclusively locks the database, and prunes expired keys to ensure background garbage collection without client intervention.
+2. **Active Cleanup (O(1) Min-Heap):** Rather than scanning all keys in $O(N)$ time, the background thread relies on an `std::set<std::pair<TimePoint, string>>` which acts as a Priority Queue (Min-Heap). Every 1 second, the thread instantly checks the top element of the heap in $O(1)$ time. If the top element hasn't expired, it immediately goes back to sleep, achieving massive algorithmic efficiency for high-scale caching.
 
 ### Persistence Explanation
 The `SAVE` command iterates through all unexpired data and serializes the `std::variant` instances into JSON using `nlohmann/json`. Keys, variants, and TTL UNIX timestamps are dumped synchronously. `LOAD` acts inversely, restoring both lists and strings.

@@ -15,10 +15,12 @@
 #include <sstream>
 #include <algorithm>
 #include "json.hpp"
+#include <set>
 
 using json = nlohmann::json;
 
 using ValueType = std::variant<std::string, std::deque<std::string>>;
+using TimePoint = std::chrono::time_point<std::chrono::system_clock>;
 
 class BlazeKV {
 public:
@@ -115,9 +117,19 @@ private:
         data_[key] = value;
         
         if (ex_seconds > 0) {
-            expiry_[key] = std::chrono::system_clock::now() + std::chrono::seconds(ex_seconds);
+            auto tp = std::chrono::system_clock::now() + std::chrono::seconds(ex_seconds);
+            auto it = expiry_.find(key);
+            if (it != expiry_.end()) {
+                expiry_queue_.erase({it->second, key});
+            }
+            expiry_[key] = tp;
+            expiry_queue_.insert({tp, key});
         } else {
-            expiry_.erase(key);
+            auto it = expiry_.find(key);
+            if (it != expiry_.end()) {
+                expiry_queue_.erase({it->second, key});
+                expiry_.erase(it);
+            }
         }
         
         touch_lru(key);
@@ -378,6 +390,7 @@ private:
         expiry_.clear();
         lru_list_.clear();
         lru_map_.clear();
+        expiry_queue_.clear();
         
         if (j.contains("data") && j["data"].is_object()) {
             for (const auto& item : j["data"].items()) {
@@ -395,8 +408,9 @@ private:
             for (const auto& item : j["expiry"].items()) {
                 long long timestamp = item.value().get<long long>();
                 std::chrono::milliseconds dur(timestamp);
-                std::chrono::time_point<std::chrono::system_clock> tp(dur);
+                TimePoint tp(dur);
                 expiry_[item.key()] = tp;
+                expiry_queue_.insert({tp, item.key()});
             }
         }
         
@@ -432,16 +446,16 @@ private:
             std::this_thread::sleep_for(std::chrono::seconds(1));
             std::unique_lock lock(mutex_);
             auto now = std::chrono::system_clock::now();
-            for (auto it = expiry_.begin(); it != expiry_.end(); ) {
-                if (now > it->second) {
-                    // Extract key since erase_unsafe will delete it from expiry_
-                    std::string expired_key = it->first;
-                    // Move iterator before erasing to prevent invalidation
-                    ++it;
+            
+            while (!expiry_queue_.empty()) {
+                auto it = expiry_queue_.begin();
+                if (now > it->first) {
+                    std::string expired_key = it->second;
                     erase_unsafe(expired_key);
                     expired_keys_cleaned_++;
                 } else {
-                    ++it;
+                    // Top element hasn't expired yet, so stop checking! (O(1) peek)
+                    break;
                 }
             }
         }
@@ -449,11 +463,15 @@ private:
 
     bool erase_unsafe(const std::string& key) {
         if (data_.erase(key)) {
-            expiry_.erase(key);
-            auto it = lru_map_.find(key);
-            if (it != lru_map_.end()) {
-                lru_list_.erase(it->second);
-                lru_map_.erase(it);
+            auto it = expiry_.find(key);
+            if (it != expiry_.end()) {
+                expiry_queue_.erase({it->second, key});
+                expiry_.erase(it);
+            }
+            auto lru_it = lru_map_.find(key);
+            if (lru_it != lru_map_.end()) {
+                lru_list_.erase(lru_it->second);
+                lru_map_.erase(lru_it);
             }
             return true;
         }
@@ -518,7 +536,8 @@ private:
     // STATE
     mutable std::shared_mutex mutex_;
     std::unordered_map<std::string, ValueType> data_;
-    std::unordered_map<std::string, std::chrono::time_point<std::chrono::system_clock>> expiry_;
+    std::unordered_map<std::string, TimePoint> expiry_;
+    std::set<std::pair<TimePoint, std::string>> expiry_queue_;
     
     // LRU state
     size_t max_keys_;
